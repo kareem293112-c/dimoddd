@@ -2,56 +2,65 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import admin from 'firebase-admin'; // الاستيراد الصحيح المباشر للمكتبة
+import admin from 'firebase-admin';
+import fs from 'fs';
 
 // 1. تهيئة تطبيق Express وسيرفر الـ WebSockets
 const app = express();
 const server = http.createServer(app);
 
+// تهيئة CORS بشكل صحيح مع روابط المشروع المحددة حصراً من قبلك
 app.use(cors({
-    origin: ['https://onrender.com', 'http://localhost:3000'],
+    origin: ['https://wif.onrender.com', 'http://localhost:3000'],
     credentials: true
 }));
 app.use(express.json());
 
-// 2. ربط وتهيئة Firebase Admin SDK بأمان مع فحص وجود المتغير السري أولاً
-let db: any = null;
+// 2. ربط وتهيئة Firebase Admin SDK بأمان مع فحص وجود الملف السري أولاً
+let db: admin.firestore.Firestore | null = null;
 
 try {
-   const fs = require('fs');
-const serviceAccountEnv = fs.readFileSync('/etc/secrets/firebase-key.json', 'utf8');
+    let serviceAccountEnv = "";
+    
+    // محاولة قراءة الملف السري من المسار الافتراضي لملفات السرية على Render
+    if (fs.existsSync('/etc/secrets/firebase-key.json')) {
+        serviceAccountEnv = fs.readFileSync('/etc/secrets/firebase-key.json', 'utf8');
+    } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
+        // كدعم احتياطي في حال استخدام المتغيرات البيئية لـ Render
+        serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+    }
+
     if (serviceAccountEnv && serviceAccountEnv.trim() !== "") {
-                // كود ذكي يفحص نوع المفتاح ويمنع خطأ الـ Unexpected token 'o' نهائياً
         let serviceAccount: any;
-        if (typeof serviceAccountEnv === 'object') {
+        try {
+            serviceAccount = JSON.parse(serviceAccountEnv);
+        } catch (jsonErr) {
+            // في حال كان النص مهيئاً ككائن بالفعل في بيئة التشغيل
             serviceAccount = serviceAccountEnv;
-        } else {
-            try {
-                serviceAccount = JSON.parse(serviceAccountEnv);
-            } catch (jsonErr) {
-                // إذا كان النص يحتوي على حقول مفرودة بدون أقواس أو العكس
-                serviceAccount = serviceAccountEnv;
-            }
         }
-        // فحص صارم ومضمون يمنع الـ Crash إذا لم يكن هناك تطبيقات مفعلة مسبقاً
+
         // فحص صارم ومضمون يمنع الـ Crash إذا كان التطبيق مبرمجاً مسبقاً
         if (admin.apps.length === 0) {
             admin.initializeApp({
                 credential: admin.credential.cert(serviceAccount)
             });
-            console.log("🔥 بنجاح Firebase تم الاتصال بقاعدة بيانات");
+            console.log("🔥 تم الاتصال بقاعدة بيانات Firebase بنجاح");
         }
         
-        // استدعاء قاعدة البيانات الآمن من التطبيق النشط والمفعل حصراً
-       db = admin.firestore();
+        // استدعاء قاعدة البيانات وتحديد المعرف الخاص بقاعدة البيانات لضمان دقة العمليات على السيرفر
+        const firestoreInstance = admin.firestore();
+        firestoreInstance.settings({
+            databaseId: "ai-studio-sadaalarabvoiceb-5f452604-580f-4265-ab18-da9c404b3698"
+        });
+        db = firestoreInstance;
     } else {
-        console.log("⚠️ لم يتم العثور على مفتاح FIREBASE_SERVICE_ACCOUNT في إعدادات ريندر بعد، جاري التشغيل بدون قاعدة بيانات حالياً للتجربة.");
+        console.log("⚠️ لم يتم العثور على مفتاح الفايربيز، سيتم التشغيل بدون قاعدة بيانات حالياً للتجربة.");
     }
 } catch (error) {
     console.error("❌ خطأ في تهيئة الفايربيز، جاري التشغيل بدون قاعدة بيانات:", error);
 }
 
-// 3. متغيرات نظام المحفظة وأرباح المنصة (الباك إند)
+// 3. متغيرات نظام المحفظة وأرباح المنصة
 let systemPool = 500000; 
 let platformProfit = 0;   
 let countdown = 30;       
@@ -63,10 +72,11 @@ const multipliers: { [key: string]: number } = {
 
 // 4. خوارزمية تدوير العداد وبث النتائج اللحظية عبر الـ WebSockets
 const io = new Server(server, {
-    cors: { origin: ['https://wif.onrender.com', 'https://sada-alarab.onrender.com'], methods: ['GET', 'POST'] }
+    cors: { 
+        origin: ['https://wif.onrender.com', 'http://localhost:3000'], 
+        methods: ['GET', 'POST'] 
+    }
 });
-
-
 
 function startNewRound() {
     countdown = 30;
@@ -89,7 +99,7 @@ function startNewRound() {
 
 // 5. حساب النتيجة وفحص المحفظة لمنع خسارة المنصة أبداً
 async function processRoundResults() {
-    let winningSlot = foodSlots[Math.floor(Math.random() * foodSlots.length)];
+    const winningSlot = foodSlots[Math.floor(Math.random() * foodSlots.length)];
     io.emit('wheel_spin', { winningSlot });
     console.log(`🎰 الخيار الفائز في هذه الجولة هو: ${winningSlot}`);
 
@@ -99,15 +109,17 @@ async function processRoundResults() {
 }
 
 // 6. رابط المراهنة الآمن المرتبط بحسابك في الـ Firebase
-app.post('/api/game/bet', async (req, res) => {
+app.post('/api/game/bet', async (req: express.Request, res: express.Response) => {
     const { userId, slot, amount } = req.body; 
 
-    if (!userId || !slot || amount <= 0) {
-        return res.status(400).json({ error: "بيانات الرهان غير صالحة" });
+    if (!userId || !slot || typeof amount !== 'number' || amount <= 0) {
+        res.status(400).json({ error: "بيانات الرهان غير صالحة" });
+        return;
     }
 
     if (!db) {
-        return res.status(500).json({ error: "قاعدة بيانات الفايربيز غير متصلة بالسيرفر حالياً" });
+        res.status(500).json({ error: "قاعدة بيانات الفايربيز غير متصلة بالسيرفر حالياً" });
+        return;
     }
 
     const userRef = db.collection('users').doc(userId);
@@ -134,14 +146,14 @@ app.post('/api/game/bet', async (req, res) => {
             systemPool += poolAddition;
         });
 
-        return res.json({ success: true, message: "تم قبول الرهان وخصمه بنجاح" });
+        res.json({ success: true, message: "تم قبول الرهان وخصمه بنجاح" });
     } catch (error: any) {
-        return res.status(400).json({ error: error.message });
+        res.status(400).json({ error: error.message });
     }
 });
 
 // 7. روابط لوحة تحكم المسؤول (Admin Dashboard) لمتابعة الأرباح حياً
-app.get('/api/admin/dashboard', (req, res) => {
+app.get('/api/admin/dashboard', (req: express.Request, res: express.Response) => {
     res.json({
         systemPool,
         platformProfit,
@@ -149,13 +161,14 @@ app.get('/api/admin/dashboard', (req, res) => {
     });
 });
 
-app.post('/api/admin/inject', (req, res) => {
+app.post('/api/admin/inject', (req: express.Request, res: express.Response) => {
     const { amount } = req.body;
-    if (amount && amount > 0) {
+    if (typeof amount === 'number' && amount > 0) {
         systemPool += amount;
-        return res.json({ success: true, systemPool });
+        res.json({ success: true, systemPool });
+        return;
     }
-    return res.status(400).json({ error: "قيمة الشحن غير صحيحة" });
+    res.status(400).json({ error: "قيمة الشحن غير صحيحة" });
 });
 
 const PORT = process.env.PORT || 10000;
