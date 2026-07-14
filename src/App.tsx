@@ -1,203 +1,304 @@
-import React, { useState, useEffect, useRef } from 'react';
-import GameCanvas from './components/GameCanvas'; // ملف الجسد
-import BettingPanel from './components/BettingPanel';
-import HistorySlider from './components/HistorySlider';
-import UsersList from './components/UsersList';
-import FooterPanel from './components/FooterPanel';
+import React, { useEffect, useState, useRef } from 'react';
+import { GameCanvas } from './components/GameCanvas.tsx';
+import { BettingPanel } from './components/BettingPanel.tsx';
+import { HistorySidebar } from './components/HistorySidebar.tsx';
+import { HeaderPanel } from './components/HeaderPanel.tsx';
+import { FooterPanel } from './components/FooterPanel.tsx';
+import { AdminDashboard } from './components/AdminDashboard.tsx';
+import { GameState, FoodId, FOODS, User, Bet } from './types.js';
+import { ShieldCheck, Trophy, Shield } from 'lucide-react';
 
-// قيمة الرهان الافتراضية
-const SELECTED_BET_DEFAULT = 10; 
+const BACKEND_URL = typeof window !== 'undefined' && (window.location.hostname.includes('localhost') || window.location.hostname.includes('run.app'))
+  ? window.location.origin
+  : 'https://dimoddd.onrender.com';
 
-export default function GameController({ currentUser, roomId }) {
-    // حالات اللعبة (States)
-    const [gameState, setGameState] = useState(null);
-    const [connectionStatus, setConnectionStatus] = useState('connecting'); // connecting | connected | disconnected
-    const [selectedBet, setSelectedBet] = useState(SELECTED_BET_DEFAULT);
-    const [gameLogs, setGameLogs] = useState([]);
+export default function App() {
+  const [selectedAmount, setSelectedAmount] = useState<number>(10);
+  const [selectedFoodId, setSelectedFoodId] = useState<FoodId>('chicken');
+  const [soundEnabled, setSoundEnabled] = useState<boolean>(true);
+  const [gameState, setGameState] = useState<GameState | null>(null);
+  const [connectionStatus, setConnectionStatus] = useState<'connecting' | 'connected' | 'disconnected'>('connecting');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [sessionStartBalance, setSessionStartBalance] = useState<number | null>(null);
+  const [showAdmin, setShowAdmin] = useState(false);
 
-    // مراجع الـ Canvas والشبكة لمنع التكرار (Refs)
-    const socketRef = useRef(null);
-    const lastEventIdRef = useRef(null);
+  const errorTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const successTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-    // دالة لتسجيل التنبيهات والأحداث دون تعليق الشاشة (بديل الـ alert الكارثي)
-    const logGameEvent = (message) => {
-        setGameLogs(prev => [message, ...prev.slice(0, 19)]); // الاحتفاظ بآخر 20 حدث فقط
-        console.log(`[Game Log]: ${message}`);
-    };
+  // Trigger brief alert toasts
+  const triggerError = (msg: string) => {
+    if (errorTimeoutRef.current) clearTimeout(errorTimeoutRef.current);
+    setErrorMessage(msg);
+    errorTimeoutRef.current = setTimeout(() => setErrorMessage(null), 3000);
+  };
 
-    // 1. إدارة اتصال الـ WebSocket والمزامنة المستمرة
-    useEffect(() => {
-        if (!currentUser || !roomId) return;
+  const triggerSuccess = (msg: string) => {
+    if (successTimeoutRef.current) clearTimeout(successTimeoutRef.current);
+    setSuccessMessage(msg);
+    successTimeoutRef.current = setTimeout(() => setSuccessMessage(null), 3500);
+  };
 
-        // الاتصال بالسيرفر وتمرير التوكن والغرفة في الرابط بأمان
-        const wsUrl = `wss://${window.location.host}/game?token=${currentUser.token}&roomId=${roomId}`;
-        socketRef.current = new WebSocket(wsUrl);
+  // Connect to server real-time SSE stream on mount
+  useEffect(() => {
+    let sse: EventSource | null = null;
+    let reconnectTimeout: NodeJS.Timeout | null = null;
 
-        setConnectionStatus('connecting');
+    const connectSSE = () => {
+      setConnectionStatus('connecting');
+      sse = new EventSource(`${BACKEND_URL}/api/stream?userId=user_me`);
 
-        socketRef.current.onopen = () => {
-            setConnectionStatus('connected');
-            logGameEvent("تم الاتصال بسيرفر اللعبة بنجاح.");
-        };
+      sse.onopen = () => {
+        setConnectionStatus('connected');
+      };
 
-        socketRef.current.onmessage = (event) => {
-            try {
-                const parsedData = JSON.parse(event.data);
-                
-                if (parsedData && parsedData.type === 'STATE_UPDATE') {
-                    const nextState = parsedData.data;
-                    
-                    // التحقق من سلامة البيانات قبل حقنها في الجسد
-                    if (nextState && Array.isArray(nextState.roomPlayers)) {
-                        setGameState(nextState);
-                    }
-                }
-            } catch (error) {
-                console.error("خطأ في قراءة بيانات السيرفر الحية:", error);
-            }
-        };
-
-        socketRef.current.onerror = (error) => {
-            console.error("خطأ في شبكة الـ WebSocket:", error);
-        };
-
-        socketRef.current.onclose = () => {
-            setConnectionStatus('disconnected');
-            logGameEvent("انقطع الاتصال بالسيرفر. جاري محاولة إعادة الاتصال...");
-        };
-
-        // تنظيف الاتصال عند الخروج من الغرفة الصوتية
-        return () => {
-            if (socketRef.current) {
-                socketRef.current.close();
-            }
-        };
-    }, [currentUser, roomId]);
-
-    // 2. تتبع الحالات الخاصة ومضاعفات الوقت العشوائية (RNG Effects)
-    useEffect(() => {
-        if (!gameState) return;
-
-        // منع تكرار المعالجة لنفس الحدث (مهم جداً لسلاسة الـ Canvas)
-        if (gameState.eventId && gameState.eventId !== lastEventIdRef.current) {
-            lastEventIdRef.current = gameState.eventId;
-
-            if (gameState.phase === 'spinning') {
-                logGameEvent(`بدأت العجلة بالدوران! زاوية الهدف: ${gameState.targetAngle}`);
-            }
-
-            if (gameState.phase === 'ended') {
-                logGameEvent(`انتهت الجولة بفوز الخيار: ${gameState.winner}`);
-            }
-        }
-    }, [gameState]);
-
-    // 3. دالة المشاركة والرهان الآمنة بالكامل (تم حل مشكلة الـ BigInt والـ Headers)
-    const handlePlacingABet = async () => {
-        if (!gameState || connectionStatus !== 'connected') {
-            logGameEvent("لا يمكن إرسال الطلب، تأكد من اتصالك بالشبكة.");
-            return;
-        }
-
-        if (gameState.phase !== 'betting') {
-            logGameEvent("عذراً، انتهى وقت استقبال المشاركات لهذه الجولة.");
-            return;
-        }
-
-        // البحث عن اللاعب الحالي في المصفوفة بأمان
-        const myData = gameState.roomPlayers.find(p => p.id === currentUser.id);
-        if (!myData) {
-            logGameEvent("لم يتم العثور على بياناتك كلاعب نشط في الغرفة.");
-            return;
-        }
-
-        // إصلاح مشكلة مقارنة الـ BigInt الكارثية
-        const currentBalance = BigInt(myData.balance || 0);
-        const requiredBet = BigInt(selectedBet);
-
-        if (currentBalance < requiredBet) {
-            logGameEvent("رصيدك غير كافٍ للمشاركة في الجولة الحالية.");
-            return;
-        }
-
+      sse.onmessage = (event) => {
         try {
-            const response = await fetch("/api/v1/game/place-bet", {
-                method: "POST",
-                headers: {
-                    "Content-Type": "application/json",
-                    "Authorization": `Bearer ${currentUser.token}` // توثيق الهوية لضمان الأمان
-                },
-                body: JSON.stringify({
-                    roomId: roomId,
-                    amount: requiredBet.toString() // إرسال النص لتفادي مشاكل JSON مع BigInt
-                })
-            });
+          const state: GameState = JSON.parse(event.data);
+          setGameState(state);
 
-            const result = await response.json();
-            if (!response.ok) throw new Error(result.message || "رفض السيرفر المعاملة");
-
-            logGameEvent(`تمت مشاركتك بمبلغ ${selectedBet} بنجاح!`);
-
-        } catch (error) {
-            console.error("فشل إرسال طلب الرهان للباك-إند:", error);
-            logGameEvent("حدث خطأ أثناء تسجيل مشاركتك، يرجى المحاولة مجدداً.");
+          // Track starting balance for Session Profit calculation
+          const me = state.roomPlayers.find(p => p.id === 'user_me');
+          if (me && sessionStartBalance === null) {
+            setSessionStartBalance(me.balance);
+          }
+        } catch (e) {
+          console.error('Error parsing SSE state', e);
         }
+      };
+
+      sse.onerror = (err) => {
+        setConnectionStatus('disconnected');
+        sse?.close();
+        reconnectTimeout = setTimeout(() => {
+          connectSSE();
+        }, 3000);
+      };
     };
 
-    // حساب إحصائيات سريعة للواجهة باستخدام معالجة BigInt الآمنة
-    const getMyCurrentBalance = () => {
-        if (!gameState) return "0";
-        const me = gameState.roomPlayers.find(p => p.id === currentUser.id);
-        return me ? me.balance.toString() : "0";
-    };
+    connectSSE();
 
-    return (
-        <div className="game-container w-full h-full flex flex-col justify-between overflow-hidden bg-slate-950 text-white p-4">
+    return () => {
+      sse?.close();
+      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+    };
+  }, [sessionStartBalance]);
+
+  // Win Declaration Toast check
+  const lastRoundRef = useRef<number>(-1);
+  useEffect(() => {
+    if (gameState && gameState.phase === 'result' && gameState.winningFood && gameState.round !== lastRoundRef.current) {
+      lastRoundRef.current = gameState.round;
+      
+      const winningItem = FOODS[gameState.winningFood];
+      const me = gameState.roomPlayers.find(p => p.id === 'user_me');
+      
+      const myBetAmount = gameState.userBets?.[gameState.winningFood] || 0;
+      
+      if (myBetAmount > 0) {
+        const winProfit = myBetAmount * winningItem.multiplier;
+        triggerSuccess(`🎉 تهانينا! لقد فزت بـ ${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
+      } else {
+        triggerSuccess(`🏁 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
+      }
+    }
+  }, [gameState]);
+
+  // Handle placing a bet via API transaction
+  const handlePlaceBet = async (foodId: FoodId) => {
+    if (!gameState) return;
+
+    if (gameState.phase !== 'betting') {
+      triggerError('المراهنات مغلقة حالياً، انتظر الجولة القادمة!');
+      return;
+    }
+
+    if (gameState.timer <= 1) {
+      triggerError('انتهى وقت المراهنة لهذه الجولة!');
+      return;
+    }
+
+    const me = gameState.roomPlayers.find(p => p.id === 'user_me');
+    if (!me) {
+      triggerError('خطأ: لم يتم التعرف على ملفك الشخصي.');
+      return;
+    }
+
+    if (me.balance < selectedAmount) {
+      triggerError('رصيدك غير كافٍ لإجراء هذا الرهان! اضغط (+) للشحن.');
+      return;
+    }
+
+    // Optimistic state updates
+    setGameState(prev => {
+      if (!prev) return null;
+      const updatedTotalBets = { ...prev.totalBets };
+      updatedTotalBets[foodId] = (updatedTotalBets[foodId] || 0) + selectedAmount;
+
+      const updatedUserBets = { ...prev.userBets };
+      updatedUserBets[foodId] = (updatedUserBets[foodId] || 0) + selectedAmount;
+
+      const updatedRoomPlayers = prev.roomPlayers.map(p => {
+        if (p.id === 'user_me') {
+          return { ...p, balance: p.balance - selectedAmount };
+        }
+        return p;
+      });
+
+      return {
+        ...prev,
+        totalBets: updatedTotalBets,
+        userBets: updatedUserBets,
+        roomPlayers: updatedRoomPlayers
+      };
+    });
+
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/bet`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userId: 'user_me',
+          foodId: foodId,
+          amount: selectedAmount
+        })
+      });
+
+      if (!res.ok) {
+        const errData = await res.json();
+        throw new Error(errData.error || 'فشل وضع الرهان');
+      }
+    } catch (e: any) {
+      triggerError(e.message || 'خطأ في الاتصال بالخادم.');
+      // Revert optimistic update by fetching state again or letting SSE handle it
+    }
+  };
+
+  // Add free testing balance
+  const handleAddBalance = async () => {
+    try {
+      const res = await fetch(`${BACKEND_URL}/api/add-balance`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userId: 'user_me', amount: 5000 })
+      });
+      if (res.ok) {
+        triggerSuccess('⚡ تم شحن محفظتك بـ 5,000 كوينز مجانية للتجربة!');
+      }
+    } catch (e) {
+      triggerError('فشل شحن الرصيد التجريبي');
+    }
+  };
+
+  // Helper variables
+  const currentUser = gameState?.roomPlayers.find(p => p.id === 'user_me') || null;
+  const topPlayer = gameState?.roomPlayers.find(p => p.id === 'bot_1') || null;
+  
+  const currentBalance = currentUser?.balance || 0;
+  const dailyProfit = sessionStartBalance !== null ? currentBalance - sessionStartBalance : 0;
+
+  const foodKeys = Object.keys(FOODS) as FoodId[];
+
+  return (
+    <div className="w-full h-[100dvh] bg-[#070312] flex flex-col items-center justify-center md:py-6 text-slate-100 font-sans overflow-hidden" dir="ltr">
+      
+      <div className="absolute inset-0 bg-[radial-gradient(ellipse_100%_100%_at_50%_0%,rgba(98,32,184,0.18),rgba(0,0,0,0))] pointer-events-none" />
+
+      {/* Admin Toggle */}
+      <button 
+        onClick={() => setShowAdmin(true)}
+        className="absolute top-4 left-4 z-40 p-2 bg-[#1a0f35] border border-fuchsia-500/30 rounded-full text-fuchsia-400 hover:text-fuchsia-300 hover:bg-[#23153e] transition-colors"
+        title="Admin Dashboard"
+      >
+        <Shield size={20} />
+      </button>
+
+      {showAdmin && <AdminDashboard onClose={() => setShowAdmin(false)} />}
+
+      {/* Main Container - Accommodating simulated Voice Chat and Bottom Sheet layout */}
+      <div className="relative w-full h-full md:max-w-md bg-[#0a0518] md:rounded-3xl shadow-3xl md:border border-[#23153e] overflow-hidden flex flex-col">
+        
+        {/* Connection status notification */}
+        {connectionStatus !== 'connected' && (
+          <div className={`absolute top-11 left-0 right-0 z-40 py-1 text-center text-[10px] font-bold ${connectionStatus === 'connecting' ? 'bg-amber-500/90 text-slate-950 animate-pulse' : 'bg-rose-600/95 text-white'}`}>
+            {connectionStatus === 'connecting' ? 'جاري الاتصال بغرفة الألعاب...' : 'انقطع الاتصال بالسيرفر! جاري المحاولة...'}
+          </div>
+        )}
+
+        {/* Dynamic toasts */}
+        {errorMessage && (
+          <div className="absolute top-14 left-4 right-4 z-50 bg-rose-600/95 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xl flex items-center justify-between border border-rose-400 animate-slide-in" dir="rtl">
+            <span>⚠️ {errorMessage}</span>
+          </div>
+        )}
+
+        {successMessage && (
+          <div className="absolute top-14 left-4 right-4 z-50 bg-emerald-600/95 text-white text-xs font-bold py-2.5 px-4 rounded-xl shadow-xl flex items-center justify-between border border-emerald-400 animate-slide-in" dir="rtl">
+            <span>{successMessage}</span>
+          </div>
+        )}
+
+        {/* PREMIUM GAME PANEL CONTAINER */}
+        <div className="flex-1 bg-gradient-to-b from-[#110624] to-[#04010a] border-t-4 border-[#d97706]/80 flex flex-col relative min-h-0">
+
+          {/* 2a. TOP HEADER BAR */}
+          <HeaderPanel
+            round={gameState?.round || 1993}
+            soundEnabled={soundEnabled}
+            onToggleSound={() => setSoundEnabled(!soundEnabled)}
+          />
+
+          {/* 2b. MAIN PLAYING AREA (Center-Wheel, Right-Chips, History) */}
+          <div className="relative flex flex-col p-2 gap-2 bg-[#100624]/30 flex-1 min-h-0">
             
-            {/* شريط الحالة والشبكة */}
-            <div className="flex justify-between items-center border-b border-slate-800 pb-2 mb-2">
-                <span className="text-sm">معرف الغرفة: {roomId}</span>
-                <span className={`text-xs px-2 py-1 rounded ${connectionStatus === 'connected' ? 'bg-green-600' : 'bg-red-600'}`}>
-                    {connectionStatus === 'connected' ? 'متصل برمجياً' : 'جاري الاتصال...'}
-                </span>
+            {/* Central 2.5D Animated wheel */}
+            <div className="flex-1 flex flex-col items-center justify-center relative min-h-0">
+              <div className="absolute inset-0 flex items-center justify-center">
+                <GameCanvas
+                  phase={gameState?.phase || 'betting'}
+                  timer={gameState?.timer !== undefined ? gameState.timer : 30}
+                  totalBets={gameState?.totalBets || {}}
+                  userBets={gameState?.userBets || {}}
+                  winningFood={gameState?.winningFood || null}
+                  onPlaceBet={handlePlaceBet}
+                  allBetsList={gameState?.allBetsList || []}
+                  selectedFoodId={selectedFoodId}
+                  onSelectFood={(id) => {
+                    setSelectedFoodId(id);
+                    handlePlaceBet(id);
+                  }}
+                  soundEnabled={soundEnabled}
+                />
+              </div>
+            </div>
+            
+            {/* Betting Panel & History Sidebar below wheel, shrinkable */}
+            <div className="w-full flex-shrink-0 flex flex-col gap-2">
+              <HistorySidebar history={gameState?.history || []} />
+
+              <BettingPanel
+                selectedAmount={selectedAmount}
+                onSelectAmount={(amt) => setSelectedAmount(amt)}
+                selectedFoodId={selectedFoodId}
+                onPlaceBet={handlePlaceBet}
+                phase={gameState?.phase || 'betting'}
+                timer={gameState?.timer !== undefined ? gameState.timer : 30}
+              />
             </div>
 
-            {/* الجزء الأساسي: العقل يمرر البيانات للجسد للرسم */}
-            <div className="main-layout flex flex-col md:flex-row gap-4 justify-center items-center my-auto">
-                
-                {/* ملف الجسد (الواجهات والأنيميشن) */}
-                <div className="canvas-section flex justify-center items-center relative">
-                    <GameCanvas gameState={gameState} logGameEvent={logGameEvent} />
-                </div>
+          </div>
 
-                {/* لوحة التحكم والرهانات */}
-                <div className="controls-section w-full md:w-80 flex flex-col gap-2">
-                    <div className="bg-slate-900 p-3 rounded-lg border border-slate-800 text-center">
-                        <p className="text-xs text-slate-400">رصيدك الحالي</p>
-                        <p className="text-xl font-bold text-yellow-500">{getMyCurrentBalance()} نقطة</p>
-                    </div>
+          {/* 2d. PROFILE & WALLET FOOTER */}
+          <FooterPanel
+            currentUser={currentUser}
+            onAddBalance={handleAddBalance}
+            topPlayer={topPlayer}
+            dailyProfit={dailyProfit}
+          />
 
-                    <BettingPanel 
-                        selectedBet={selectedBet} 
-                        setSelectedBet={setSelectedBet} 
-                        onPlaceBet={handlePlacingABet}
-                        disabled={gameState?.phase !== 'betting'}
-                    />
-                </div>
-            </div>
-
-            {/* الأجزاء الجانبية المساعدة كقوائم وسجل النتائج */}
-            <div className="bottom-layout w-full mt-4 flex flex-col gap-2 border-t border-slate-800 pt-2">
-                <HistorySlider history={gameState?.history || []} />
-                <UsersList players={gameState?.roomPlayers || []} />
-                
-                {/* استعراض التنبيهات المباشرة للمستخدم في اللعبة بدل الـ alert */}
-                <div className="logs-view text-[10px] text-slate-400 max-h-12 overflow-y-auto px-2 bg-slate-900 rounded">
-                    {gameLogs.length > 0 ? gameLogs[0] : "في انتظار بدء الجولة..."}
-                </div>
-            </div>
-
-            <FooterPanel />
         </div>
-    );
+
+      </div>
+    </div>
+  );
 }
