@@ -86,18 +86,24 @@ export default function App() {
     if (gameState && gameState.phase === 'result' && gameState.winningFood && gameState.round !== lastRoundRef.current) {
       lastRoundRef.current = gameState.round;
       
-      const winningItem = FOODS[gameState.winningFood];
-   const me = (gameState && gameState.roomPlayers && Array.isArray(gameState.roomPlayers)) 
-  ? gameState.roomPlayers.find((p: any) => p && p.id === 'user_me') 
-  : null;
-      
-      const myBetAmount = gameState.userBets?.[gameState.winningFood] || 0;
-      
-      if (myBetAmount > 0) {
-        const winProfit = myBetAmount * winningItem.multiplier;
-        triggerSuccess(`🎉 تهانينا! لقد فزت بـ ${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
-      } else {
-        triggerSuccess(`🏁 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
+         const winningItem = FOODS ? FOODS[gameState?.winningFood] : null;
+    const me = (gameState && gameState.roomPlayers && Array.isArray(gameState.roomPlayers)) 
+      ? gameState.roomPlayers.find((p: any) => p && p.id === 'user_me') 
+      : null;
+
+    const myBetAmount = gameState?.userBets?.[gameState?.winningFood] || 0;
+
+    if (myBetAmount > 0) {
+      const winProfit = myBetAmount * (winningItem?.multiplier || 0);
+      if (winningItem) {
+        triggerSuccess(`🎉 تهانينا! لقد فزت بـ $${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
+      }
+    } else {
+      if (winningItem) {
+        triggerSuccess(`🎰 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
+      }
+    }
+
       }
     }
   }, [gameState]);
