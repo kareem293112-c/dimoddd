@@ -2,7 +2,7 @@ import express from 'express';
 import http from 'http';
 import { Server } from 'socket.io';
 import cors from 'cors';
-import admin from 'firebase-admin'; // تم إصلاح الاستيراد هنا لحل مشكلة الـ length
+import admin from 'firebase-admin'; // الاستيراد الصحيح المباشر للمكتبة
 
 // 1. تهيئة تطبيق Express وسيرفر الـ WebSockets
 const app = express();
@@ -14,23 +14,28 @@ app.use(cors({
 }));
 app.use(express.json());
 
-// 2. ربط وتهيئة Firebase Admin SDK بأمان
-if (!admin.apps.length) {
-    try {
-        const serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT || '{}');
-        if (serviceAccount.project_id) {
+// 2. ربط وتهيئة Firebase Admin SDK بأمان مع فحص وجود المتغير السري أولاً
+let db: any = null;
+
+try {
+    const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+    if (serviceAccountEnv && serviceAccountEnv.trim() !== "") {
+        const serviceAccount = JSON.parse(serviceAccountEnv);
+        
+        // فحص صارم ومضمون يمنع الـ Crash إذا لم يكن هناك تطبيقات مفعلة مسبقاً
+        if (!admin.apps || admin.apps.length === 0) {
             admin.initializeApp({
                 credential: admin.credential.cert(serviceAccount)
             });
             console.log("🔥 تم الاتصال بقاعدة بيانات Firebase بنجاح!");
-        } else {
-            console.log("⚠️ لم يتم العثور على مفتاح FIREBASE_SERVICE_ACCOUNT بعد في إعدادات ريندر.");
         }
-    } catch (error) {
-        console.error("❌ خطأ في تهيئة الفايربيز، جاري استخدام إعدادات افتراضية:", error);
+        db = admin.firestore();
+    } else {
+        console.log("⚠️ لم يتم العثور على مفتاح FIREBASE_SERVICE_ACCOUNT في إعدادات ريندر بعد، جاري التشغيل بدون قاعدة بيانات حالياً للتجربة.");
     }
+} catch (error) {
+    console.error("❌ خطأ في تهيئة الفايربيز، جاري التشغيل بدون قاعدة بيانات:", error);
 }
-const db = admin.apps.length ? admin.firestore() : null;
 
 // 3. متغيرات نظام المحفظة وأرباح المنصة (الباك إند)
 let systemPool = 500000; 
