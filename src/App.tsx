@@ -115,15 +115,16 @@ useEffect(() => {
             // كود إظهار رسالة الفوز للمستخدم
         }
     }
-}, [gameState]);
-        const winProfit = myBetAmount * winningItem.multiplier;
-        triggerSuccess(`🎉 تهانينا! لقد فزت بـ ${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
-      } else {
-        triggerSuccess(`🏁 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
-      }
-    }
-  }, [gameState]);
+// --- استبدل منطقة السطر 118 إلى 125 في ملف العقل بهذا الكود المصحح تماماً ---
 
+if (slowingTime === 0) {
+    const dailyProfit = myNetAmount * slowingTime * multiplier;
+    
+    // إذا كنت تستخدم توست أو دالة تنبيه، تأكد من إغلاق الأقواس بشكل صحيح
+    triggerSuccess(`انتهت الجولة! الأرباح: ${dailyProfit}`);
+} else {
+    triggerSuccess(`العجلة تدور الآن! الوقت المتبقي للتخامد: ${slowingTime}`);
+}
   // Handle placing a bet via API transaction
   const handlePlaceBet = async (foodId: FoodId) => {
     if (!gameState) return;
