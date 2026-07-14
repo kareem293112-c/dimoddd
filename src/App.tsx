@@ -40,62 +40,82 @@ export default function App() {
   };
 
   // Connect to server real-time SSE stream on mount
-  useEffect(() => {
+// --- استبدل كود الـ SSE والـ Win Declaration في ملف العقل بهذا الكود ---
+
+useEffect(() => {
     let sse: EventSource | null = null;
     let reconnectTimeout: NodeJS.Timeout | null = null;
 
     const connectSSE = () => {
-      setConnectionStatus('connecting');
-      sse = new EventSource(`${BACKEND_URL}/api/stream?userId=user_me`);
+        setConnectionStatus('connecting');
+        sse = new EventSource(`${BACKEND_URL}/api/stream?userId=user_me`);
 
-      sse.onopen = () => {
-        setConnectionStatus('connected');
-      };
+        sse.onopen = () => {
+            setConnectionStatus('connected');
+        };
 
-      sse.onmessage = (event) => {
-        try {
-          const state: GameState = JSON.parse(event.data);
-          setGameState(state);
+        sse.onmessage = (event) => {
+            try {
+                const state: GameState = JSON.parse(event.data);
+                
+                if (state) {
+                    // حماية وتأمين البيانات لضمان عدم الانهيار
+                    const safeState = {
+                        ...state,
+                        roomPlayers: state.roomPlayers || [],
+                        history: state.history || []
+                    };
+                    
+                    setGameState(safeState);
 
-          // Track starting balance for Session Profit calculation
-          const me = state.roomPlayers.find(p => p.id === 'user_me');
-          if (me && sessionStartBalance === null) {
-            setSessionStartBalance(me.balance);
-          }
-        } catch (e) {
-          console.error('Error parsing SSE state', e);
-        }
-      };
+                    // التعديل المصلح للسطر 61: استخدام علامة الاستفهام للحماية
+                    const me = safeState.roomPlayers?.find(p => p.id === 'user_me');
+                    if (me && sessionStartBalance === null) {
+                        setSessionStartBalance(me.balance);
+                    }
+                }
+            } catch (e) {
+                console.error('Error parsing SSE state', e);
+            }
+        };
 
-      sse.onerror = (err) => {
-        setConnectionStatus('disconnected');
-        sse?.close();
-        reconnectTimeout = setTimeout(() => {
-          connectSSE();
-        }, 3000);
-      };
+        sse.onerror = (err) => {
+            setConnectionStatus('disconnected');
+            sse?.close();
+            reconnectTimeout = setTimeout(() => {
+                connectSSE();
+            }, 3000);
+        };
     };
 
     connectSSE();
 
     return () => {
-      sse?.close();
-      if (reconnectTimeout) clearTimeout(reconnectTimeout);
+        sse?.close();
+        if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
-  }, [sessionStartBalance]);
+}, [sessionStartBalance]);
 
-  // Win Declaration Toast check
-  const lastRoundRef = useRef<number>(-1);
-  useEffect(() => {
+// فحص إعلان الفوز وحساب النتائج بأمان
+const lastRoundRef = useRef<number>(-1);
+useEffect(() => {
+    // التعديل المصلح للسطر 89 وما بعده: حماية الـ gameState بعلامات الاستفهام
     if (gameState && gameState.phase === 'result' && gameState.winningFood && gameState.round !== lastRoundRef.current) {
-      lastRoundRef.current = gameState.round;
-      
-      const winningItem = FOODS[gameState.winningFood];
-      const me = gameState.roomPlayers.find(p => p.id === 'user_me');
-      
-      const myBetAmount = gameState.userBets?.[gameState.winningFood] || 0;
-      
-      if (myBetAmount > 0) {
+        lastRoundRef.current = gameState.round;
+
+        const winningItem = Foods[gameState.winningFood];
+        
+        // التعديل المصلح للسطر 94: البحث الآمن عن اللاعب
+        const me = gameState.roomPlayers?.find(p => p.id === 'user_me') || null;
+
+        // التعديل المصلح للسطر 96: حماية قراءة المراهنات العشوائية من الانهيار
+        const myBetAmount = gameState.userBets?.[gameState.winningFood] || 0;
+
+        if (myBetAmount > 0) {
+            // كود إظهار رسالة الفوز للمستخدم
+        }
+    }
+}, [gameState]);
         const winProfit = myBetAmount * winningItem.multiplier;
         triggerSuccess(`🎉 تهانينا! لقد فزت بـ ${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
       } else {
