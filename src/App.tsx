@@ -101,13 +101,9 @@ export default function App() {
     } else {
       if (winningItem) {
         triggerSuccess(`🎰 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
-      }
-    }
-
-      }
+              }
     }
   }, [gameState]);
-
   // Handle placing a bet via API transaction
   const handlePlaceBet = async (foodId: FoodId) => {
     if (!gameState) return;
