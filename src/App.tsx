@@ -54,8 +54,7 @@ export default function App() {
           setGameState(state);
 
           // Track starting balance for Session Profit calculation
-               const me = (state?.roomPlayers && Array.isArray(state.roomPlayers)) ? state.roomPlayers.find((p: any) => p?.id === 'user_me') : null;
-          if (me && sessionStartBalance === null) {
+              const me = (state?.roomPlayers && Array.isArray(state.roomPlayers)) ? state.roomPlayers.find((p: any) => p?.id === 'user_me') : null;
             setSessionStartBalance(me.balance);
           }
         } catch (e) {
@@ -181,9 +180,11 @@ export default function App() {
       const res = await fetch('/api/add-balance', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: 'user_me', amount: 5000 })
-      });
-      if (res.ok) {
+        // Helper variables
+const currentUser = (gameState?.roomPlayers && Array.isArray(gameState.roomPlayers)) ? gameState.roomPlayers.find((p: any) => p && p.id === 'user_me') : null;
+const currentBet = (gameState?.userBets && typeof selectedElement !== 'undefined') ? gameState.userBets[selectedElement] : 0;
+const currentBalance = currentUser ? currentUser.balance : 0;
+
         triggerSuccess('⚡ تم شحن محفظتك بـ 5,000 كوينز مجانية للتجربة!');
       }
     } catch (e) {
@@ -290,15 +291,11 @@ export default function App() {
           </div>
 
           {/* 2d. PROFILE & WALLET FOOTER */}
-          <FooterPanel
-            currentUser={currentUser}
-            onAddBalance={handleAddBalance}
-            topPlayer={topPlayer}
-            dailyProfit={dailyProfit}
-          />
-
-        </div>
-
+                 <FooterPanel 
+          currentBalance={currentBalance}
+          topPlayer={topPlayer}
+          dailyProfit={dailyProfit}
+        />
       </div>
     </div>
   );
