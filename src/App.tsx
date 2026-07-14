@@ -54,7 +54,9 @@ export default function App() {
           setGameState(state);
 
           // Track starting balance for Session Profit calculation
-          const me = state.roomPlayers.find(p => p.id === 'user_me');
+          const me = (state && state.roomPlayers && Array.isArray(state.roomPlayers)) 
+  ? state.roomPlayers.find((p: any) => p && p.id === 'user_me') 
+  : null;
           if (me && sessionStartBalance === null) {
             setSessionStartBalance(me.balance);
           }
