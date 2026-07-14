@@ -63,8 +63,10 @@ const multipliers: { [key: string]: number } = {
 
 // 4. خوارزمية تدوير العداد وبث النتائج اللحظية عبر الـ WebSockets
 const io = new Server(server, {
-    cors: { origin: 'https://onrender.com', methods: ['GET', 'POST'] }
+    cors: { origin: ['https://wif.onrender.com', 'https://sada-alarab.onrender.com'], methods: ['GET', 'POST'] }
 });
+
+
 
 function startNewRound() {
     countdown = 30;
