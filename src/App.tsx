@@ -47,22 +47,24 @@ export default function App() {
       sse.onopen = () => {
         setConnectionStatus('connected');
       };
+  sse.onmessage = (event) => {
+    try {
+      const state: GameState = JSON.parse(event.data);
+      setGameState(state);
 
-      sse.onmessage = (event) => {
-        try {
-          const state: GameState = JSON.parse(event.data);
-          setGameState(state);
+      // Track starting balance for Session Profit calculation
+      const me = (state?.roomPlayers && Array.isArray(state.roomPlayers)) 
+        ? state.roomPlayers.find((p: any) => p && p.id === 'user_me') 
+        : null;
 
-          // Track starting balance for Session Profit calculation
-              const me = (state?.roomPlayers && Array.isArray(state.roomPlayers)) ? state.roomPlayers.find((p: any) => p?.id === 'user_me') : null;
-            setSessionStartBalance(me.balance);
-          }
-        } catch (e) {
-          console.error('Error parsing SSE state', e);
-        }
-      };
+      if (me && sessionStartBalance === null) {
+        setSessionStartBalance(me.balance);
+      }
+    } catch (e) {
+      console.error('Error parsing SSE state', e);
+    }
+  };
 
-      sse.onerror = (err) => {
         setConnectionStatus('disconnected');
         sse?.close();
         reconnectTimeout = setTimeout(() => {
