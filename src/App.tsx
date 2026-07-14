@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useRef } from 'react';
-import { GameState, FOODS, FOOD_IDS, SELECTED_BET_AMOUNT } from './types';
+import { GameState, FOODS, FOOD_IDS } from './types';
 import GameCanvas from './components/GameCanvas';
 import BettingPanel from './components/BettingPanel';
 import HistorySidebar from './components/HistorySidebar';
@@ -7,15 +7,18 @@ import HeaderPanel from './components/HeaderPanel';
 import FooterPanel from './components/FooterPanel';
 import AdminDashboard from './components/AdminDashboard';
 
+// Define the missing constant directly here to fix the build error
+const SELECTED_BET_AMOUNT = 100; // يمكنك تغيير هذه القيمة الافتراضية (مثلا 100 أو 500 كوينز) حسب نظام اللعبة لديك
+
 // Custom Trigger Functions directly inside App to avoid missing import errors
 const triggerSuccess = (msg: string) => {
   console.log("%c SUCCESS: " + msg, "color: #10b981; font-weight: bold; background: #064e3b; padding: 4px; border-radius: 4px;");
-  alert(msg); // تأكيد التنبيه البصري للمستخدم
+  alert(msg);
 };
 
 const triggerError = (msg: string) => {
   console.error("ERROR: " + msg);
-  alert(msg); // تأكيد التنبيه البصري للمستخدم
+  alert(msg);
 };
 
 export default function App() {
