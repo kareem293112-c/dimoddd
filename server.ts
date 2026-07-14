@@ -299,13 +299,32 @@ async function startServer() {
   const app = express();
   app.use(express.json());
 
+  // CORS Middleware supporting secure production headers
+  app.use((req, res, next) => {
+    const origin = req.headers.origin;
+    if (origin && (origin === 'https://wif.onrender.com' || origin.includes('localhost') || origin.includes('run.app'))) {
+      res.setHeader('Access-Control-Allow-Origin', origin);
+    } else {
+      res.setHeader('Access-Control-Allow-Origin', '*');
+    }
+    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS, PUT, PATCH, DELETE');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
+    res.setHeader('Access-Control-Allow-Credentials', 'true');
+    
+    if (req.method === 'OPTIONS') {
+      return res.sendStatus(200);
+    }
+    next();
+  });
+
   // API endpoints
   
   // Stream game state in real time via SSE
   app.get('/api/stream', (req, res) => {
     res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
+    res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
+    res.setHeader('X-Accel-Buffering', 'no');
     res.flushHeaders();
 
     const userId = (req.query.userId as string) || 'user_me';
