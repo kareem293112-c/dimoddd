@@ -23,13 +23,16 @@ try {
         const serviceAccount = JSON.parse(serviceAccountEnv);
         
         // فحص صارم ومضمون يمنع الـ Crash إذا لم يكن هناك تطبيقات مفعلة مسبقاً
-        if (!admin.apps || admin.apps.length === 0) {
+        // فحص صارم ومضمون يمنع الـ Crash إذا كان التطبيق مبرمجاً مسبقاً
+        if (admin.apps.length === 0) {
             admin.initializeApp({
                 credential: admin.credential.cert(serviceAccount)
             });
-            console.log("🔥 تم الاتصال بقاعدة بيانات Firebase بنجاح!");
+            console.log("🔥 بنجاح Firebase تم الاتصال بقاعدة بيانات");
         }
-        db = admin.firestore();
+        
+        // استدعاء قاعدة البيانات الآمن من التطبيق النشط والمفعل حصراً
+        db = admin.app().firestore();
     } else {
         console.log("⚠️ لم يتم العثور على مفتاح FIREBASE_SERVICE_ACCOUNT في إعدادات ريندر بعد، جاري التشغيل بدون قاعدة بيانات حالياً للتجربة.");
     }
