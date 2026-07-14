@@ -5,7 +5,7 @@ import { HistorySidebar } from './components/HistorySidebar.tsx';
 import { HeaderPanel } from './components/HeaderPanel.tsx';
 import { FooterPanel } from './components/FooterPanel.tsx';
 import { AdminDashboard } from './components/AdminDashboard.tsx';
-import { GameState, FoodId, Foods, User, Bet } from './types.js';
+import { GameState, FoodId, FOODS, User, Bet } from './types.js';
 import { ShieldCheck, Trophy, Shield } from 'lucide-react';
 
 const BACKEND_URL = typeof window !== 'undefined' && (window.location.hostname.includes('localhost') || window.location.hostname.includes('run.app'))
@@ -106,7 +106,8 @@ export default function App() {
           const dailyProfitCalculated = myBetAmount * multiplier;
           triggerSuccess(`انتهت الجولة! لقد فزت بمضاعف x${multiplier} بربح قيمته: ${dailyProfitCalculated}`);
         } else {
-          triggerSuccess(`انتهت الجولة! الخيار الفائز هو: ${Foods[gameState.winningFood]?.label || gameState.winningFood}`);
+          // تم هنا تعديل FOODS للحروف الكبيرة ليتطابق مع الـ Types بنجاح
+          triggerSuccess(`انتهت الجولة! الخيار الفائز هو: ${FOODS[gameState.winningFood]?.label || gameState.winningFood}`);
         }
       } else {
         triggerSuccess(`العجلة تتباطأ الآن! الوقت المتبقي: ${slowingTime} ثانية`);
@@ -178,7 +179,7 @@ export default function App() {
 
   // حساب المتغيرات المساعدة للواجهة (UI Helper variables) بشكل سليم ومحمي 100%
   const currentMe = gameState?.roomPlayers?.find((p: any) => p.id === "user_me") || null;
-  const topPlayer = gameState?.roomPlayers && gameState.roomPlayers.length > 0 ? gameState.roomPlayers[0] : null;
+  const topPlayer = gameState?.roomPlayers && gameState.roomPlayers.length > 0 ? gameState.roomPlayers : null;
   const currentBalance = currentMe ? Number(currentMe.balance || 0) : 0;
   const dailyProfit = currentMe && sessionStartBalance !== null ? (Number(currentMe.balance) - Number(sessionStartBalance)) : 0;
 
