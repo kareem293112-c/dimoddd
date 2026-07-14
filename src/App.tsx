@@ -92,17 +92,19 @@ export default function App() {
       : null;
 
     const myBetAmount = gameState?.userBets?.[gameState?.winningFood] || 0;
-
-    if (myBetAmount > 0) {
-      const winProfit = myBetAmount * (winningItem?.multiplier || 0);
-      if (winningItem) {
-        triggerSuccess(`🎉 تهانينا! لقد فزت بـ $${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
+      if (myBetAmount > 0) {
+        const winProfit = myBetAmount * (winningItem?.multiplier || 0);
+        if (winningItem) {
+          triggerSuccess(`🎉 تهانينا! لقد فزت بـ $${winProfit} كوينز على خيار ${winningItem.nameAr}!`);
+        }
+      } else {
+        if (winningItem) {
+          triggerSuccess(`🎰 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
+        }
       }
-    } else {
-      if (winningItem) {
-        triggerSuccess(`🎰 انتهى الدوران! الخيار الفائز هو ${winningItem.icon} ${winningItem.nameAr} (x${winningItem.multiplier})`);
-                 }
+    }
   }, [gameState]);
+
   // Handle placing a bet via API transaction
   const handlePlaceBet = async (foodId: FoodId) => {
     if (!gameState) return;
