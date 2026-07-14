@@ -172,17 +172,19 @@ export default function App() {
   // Add free testing balance
   const handleAddBalance = async () => {
     try {
-      const res = await fetch('/api/add-balance', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        // Helper variables
-const currentUser = (gameState?.roomPlayers && Array.isArray(gameState.roomPlayers)) ? gameState.roomPlayers.find((p: any) => p && p.id === 'user_me') : null;
-const currentBet = (gameState?.userBets && typeof selectedElement !== 'undefined') ? gameState.userBets[selectedElement] : 0;
-const currentBalance = currentUser ? currentUser.balance : 0;
+          });
+  };
 
-        triggerSuccess('⚡ تم شحن محفظتك بـ 5,000 كوينز مجانية للتجربة!');
-      }
-    } catch (e) {
+  // Helper variables
+  const currentUser = (gameState?.roomPlayers && Array.isArray(gameState.roomPlayers)) 
+    ? gameState.roomPlayers.find((p: any) => p && p.id === 'user_me') 
+    : null;
+
+  const currentBet = (gameState?.userBets && typeof selectedElement !== 'undefined') 
+    ? gameState.userBets[selectedElement] 
+    : 0;
+
+  const currentBalance = currentUser ? currentUser.balance : 0;
       triggerError('فشل شحن الرصيد التجريبي');
     }
   };
