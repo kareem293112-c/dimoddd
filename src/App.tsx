@@ -87,7 +87,9 @@ export default function App() {
       lastRoundRef.current = gameState.round;
       
       const winningItem = FOODS[gameState.winningFood];
-      const me = gameState.roomPlayers.find(p => p.id === 'user_me');
+   const me = (gameState && gameState.roomPlayers && Array.isArray(gameState.roomPlayers)) 
+  ? gameState.roomPlayers.find((p: any) => p && p.id === 'user_me') 
+  : null;
       
       const myBetAmount = gameState.userBets?.[gameState.winningFood] || 0;
       
