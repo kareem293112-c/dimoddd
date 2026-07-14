@@ -47,15 +47,13 @@ export default function App() {
       sse.onopen = () => {
         setConnectionStatus('connected');
       };
-  sse.onmessage = (event) => {
+   sse.onmessage = (event) => {
     try {
       const state: GameState = JSON.parse(event.data);
       setGameState(state);
 
       // Track starting balance for Session Profit calculation
-      const me = (state?.roomPlayers && Array.isArray(state.roomPlayers)) 
-        ? state.roomPlayers.find((p: any) => p && p.id === 'user_me') 
-        : null;
+      const me = (state?.roomPlayers && Array.isArray(state.roomPlayers)) ? state.roomPlayers.find((p: any) => p && p.id === 'user_me') : null;
 
       if (me && sessionStartBalance === null) {
         setSessionStartBalance(me.balance);
@@ -65,18 +63,13 @@ export default function App() {
     }
   };
 
-        setConnectionStatus('disconnected');
-        sse?.close();
-        reconnectTimeout = setTimeout(() => {
-          connectSSE();
-        }, 3000);
-      };
-    };
-
-    connectSSE();
-
-    return () => {
-      sse?.close();
+  sse.onerror = (err) => {
+    setConnectionStatus('disconnected');
+    sse?.close();
+    reconnectTimeout = setTimeout(() => {
+      connectSSE();
+    }, 3000);
+  };
       if (reconnectTimeout) clearTimeout(reconnectTimeout);
     };
   }, [sessionStartBalance]);
