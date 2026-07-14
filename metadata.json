@@ -1,0 +1,6 @@
+{
+  "name": "Food Fortune Wheel",
+  "description": "A multiplayer food-themed ferris wheel game with an AI game-balancing engine, realistic bot engagement, and local persistent wallet transactions.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
