@@ -20,8 +20,18 @@ let db: any = null;
 try {
     const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
     if (serviceAccountEnv && serviceAccountEnv.trim() !== "") {
-        const serviceAccount = JSON.parse(serviceAccountEnv);
-        
+                // كود ذكي يفحص نوع المفتاح ويمنع خطأ الـ Unexpected token 'o' نهائياً
+        let serviceAccount: any;
+        if (typeof serviceAccountEnv === 'object') {
+            serviceAccount = serviceAccountEnv;
+        } else {
+            try {
+                serviceAccount = JSON.parse(serviceAccountEnv);
+            } catch (jsonErr) {
+                // إذا كان النص يحتوي على حقول مفرودة بدون أقواس أو العكس
+                serviceAccount = serviceAccountEnv;
+            }
+        }
         // فحص صارم ومضمون يمنع الـ Crash إذا لم يكن هناك تطبيقات مفعلة مسبقاً
         // فحص صارم ومضمون يمنع الـ Crash إذا كان التطبيق مبرمجاً مسبقاً
         if (admin.apps.length === 0) {
