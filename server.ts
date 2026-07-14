@@ -18,7 +18,8 @@ app.use(express.json());
 let db: any = null;
 
 try {
-    const serviceAccountEnv = process.env.FIREBASE_SERVICE_ACCOUNT;
+   const fs = require('fs');
+const serviceAccountEnv = fs.readFileSync('/etc/secrets/firebase-key.json', 'utf8');
     if (serviceAccountEnv && serviceAccountEnv.trim() !== "") {
                 // كود ذكي يفحص نوع المفتاح ويمنع خطأ الـ Unexpected token 'o' نهائياً
         let serviceAccount: any;
