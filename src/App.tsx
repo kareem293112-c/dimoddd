@@ -63,6 +63,7 @@ export default function App() {
             };
             setGameState(safeState);
 
+            // تتبع بداية الرصيد للمستخدم بشكل آمن
             const me = safeState.roomPlayers?.find((p: any) => p.id === 'user_me');
             if (me && sessionStartBalance === null) {
               setSessionStartBalance(me.balance);
@@ -88,25 +89,51 @@ export default function App() {
     };
   }, [sessionStartBalance]);
 
-  // فحص وإعلان نتيجة الفوز المستقرة برمجياً
+  // فحص حلقة الدوران والإعلان عن النتيجة والتخامد التنازلي
   const lastRoundRef = useRef<number>(-1);
   useEffect(() => {
     if (!gameState) return;
+
+    const slowingTime = gameState.slowingTime ?? 0;
+    const multiplier = gameState.multiplier ?? 1;
 
     if (gameState.phase === 'result' && gameState.winningFood && gameState.round !== lastRoundRef.current) {
       lastRoundRef.current = gameState.round;
 
       const myBetAmount = gameState.userBets?.[gameState.winningFood] || 0;
-      if (myBetAmount > 0) {
-        triggerSuccess(`تهانينا! لقد فاز اختيارك وتم إضافة الأرباح لرصيدك!`);
+      if (slowingTime === 0) {
+        if (myBetAmount > 0) {
+          const dailyProfitCalculated = myBetAmount * multiplier;
+          triggerSuccess(`انتهت الجولة! لقد فزت بمضاعف x${multiplier} بربح قيمته: ${dailyProfitCalculated}`);
+        } else {
+          triggerSuccess(`انتهت الجولة! الخيار الفائز هو: ${Foods[gameState.winningFood]?.label || gameState.winningFood}`);
+        }
+      } else {
+        triggerSuccess(`العجلة تتباطأ الآن! الوقت المتبقي: ${slowingTime} ثانية`);
       }
     }
   }, [gameState]);
 
-  // دالة المراهنة والاتصال عبر الـ HTTP
+  // دالة المراهنة والاتصال عبر الـ HTTP POST
   const handlePlaceBet = async () => {
     if (!gameState || connectionStatus !== 'connected') {
       triggerError("شبكة اللعبة غير متصلة حالياً!");
+      return;
+    }
+
+    if (gameState.phase !== 'betting') {
+      triggerError("عذراً، انتهى وقت استقبال الرهانات لهذه الجولة!");
+      return;
+    }
+
+    const me = gameState.roomPlayers?.find((p: any) => p.id === 'user_me');
+    if (!me) {
+      triggerError("لم يتم العثور على بيانات اللاعب في الغرفة!");
+      return;
+    }
+
+    if (Number(me.balance) < selectedAmount) {
+      triggerError("رصيدك الحالي غير كافٍ لإجراء هذه المراهنة!");
       return;
     }
 
@@ -131,9 +158,22 @@ export default function App() {
     }
   };
 
-  // دالة إضافة الرصيد
+  // دالة طلب زيادة الرصيد الاختيارية للواجهة
   const handleAddBalance = async () => {
-    console.log("طلب إضافة رصيد...");
+    try {
+      const response = await fetch(`${BACKEND_URL}/api/game/add-balance`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json"
+        },
+        body: JSON.stringify({ userId: 'user_me', amount: 1000 })
+      });
+      if (response.ok) {
+        triggerSuccess("تم إضافة 1000 نقطة تجريبية لرصيدك!");
+      }
+    } catch (err) {
+      console.error("فشل طلب الرصيد:", err);
+    }
   };
 
   // حساب المتغيرات المساعدة للواجهة (UI Helper variables) بشكل سليم ومحمي 100%
@@ -150,9 +190,10 @@ export default function App() {
         setShowAdmin={setShowAdmin} 
       />
 
-      {/* شاشة التحكم الخاصة بالآدمين */}
+      {/* شاشة التحكم الخاصة بالآدمين للتعديل على العجلة */}
       {showAdmin && <AdminDashboard />}
 
+      {/* رسائل التنبيه والخطأ الذكية والمنبثقة صامتاً */}
       {errorMessage && (
         <div className="bg-red-600/80 text-white text-xs p-2 rounded text-center my-1 animate-pulse">
           {errorMessage}
@@ -164,14 +205,27 @@ export default function App() {
         </div>
       )}
 
+      {/* قسم عرض اللعبة واللوحة الجانبية */}
       <div className="flex flex-col md:flex-row gap-4 justify-center items-center my-auto">
-        {/* مكون الجسد والرسم */}
-        <GameCanvas 
-          gameState={gameState} 
-          soundEnabled={soundEnabled} 
-        />
+        <div className="canvas-container relative flex justify-center items-center">
+          {/* مكون الجسد والرسم الفيزيائي */}
+          <GameCanvas 
+            gameState={gameState} 
+            soundEnabled={soundEnabled} 
+          />
+          
+          {/* عداد وقت تنازلي مدمج في الواجهة إذا كانت اللعبة بانتظار الرهان */}
+          {gameState?.phase === 'betting' && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
+              <span className="text-xs text-slate-400 font-bold uppercase tracking-wider">وقت المراهنة</span>
+              <span className="text-3xl font-extrabold text-yellow-500 animate-bounce">
+                {gameState?.timer !== undefined ? gameState.timer : 15}s
+              </span>
+            </div>
+          )}
+        </div>
 
-        {/* لوحة التحكم والرهانات الأطعمة */}
+        {/* لوحة التحكم واختيارات الأطعمة لجميع المشتركين */}
         <BettingPanel 
           selectedAmount={selectedAmount}
           setSelectedAmount={setSelectedAmount}
@@ -182,12 +236,12 @@ export default function App() {
         />
       </div>
 
-      {/* سجل الجولات السابقة */}
+      {/* سجل الجولات السابقة والتقارير في النصف السفلي */}
       <div className="w-full mt-4 flex gap-4">
         <HistorySidebar history={gameState?.history || []} />
       </div>
 
-      {/* تذييل الصفحة الخاص بالمحفظة واللاعبين الأفضل */}
+      {/* تذييل الصفحة المالي وقائمة المتصدرين داخل الغرفة الصوتية */}
       <FooterPanel 
         currentUser={currentMe || { id: 'user_me', name: 'أنا', balance: currentBalance, avatar: '' }}
         onAddBalance={handleAddBalance}
