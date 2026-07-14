@@ -1,299 +1,560 @@
 import express from 'express';
-import http from 'http';
-import { Server } from 'socket.io';
 import cors from 'cors';
-import admin from 'firebase-admin';
+import dotenv from 'dotenv';
+import path from 'path';
 import fs from 'fs';
+import admin from 'firebase-admin';
+import { createServer as createHttpServer } from 'http';
+import { Server as SocketIOServer } from 'socket.io';
+import { WebSocketServer, WebSocket } from 'ws';
 
-// 1. تهيئة تطبيق Express وسيرفر الـ WebSockets
+dotenv.config();
+
 const app = express();
-const server = http.createServer(app);
+const httpServer = createHttpServer(app);
+
+// 1. إعداد الـ CORS لضمان قبول الاتصالات من النطاق الصحيح https://wif.onrender.com بدون حظر
+const allowedOrigins = [
+  'https://wif.onrender.com',
+  'https://sada-alarab.onrender.com',
+  'https://onrender.com',
+  'http://localhost:3000',
+  'http://localhost:5173',
+  'https://ais-dev-qts7zckbddelnrwnra7g7o-150385904306.europe-west2.run.app',
+  'https://ais-pre-qts7zckbddelnrwnra7g7o-150385904306.europe-west2.run.app'
+];
 
 app.use(cors({
-    origin: [
-        'https://wif.onrender.com',
-        'https://sada-alarab.onrender.com',
-        'http://localhost:3000',
-        'http://localhost:5173'
-    ],
-    credentials: true,
-    methods: ['GET', 'POST', 'OPTIONS'],
-    allowedHeaders: ['Content-Type', 'Authorization', 'x-userid']
+  origin: (origin, callback) => {
+    if (!origin || allowedOrigins.includes(origin) || origin.endsWith('.onrender.com')) {
+      callback(null, true);
+    } else {
+      callback(null, true); 
+    }
+  },
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization', 'x-userid'],
+  credentials: true
 }));
+
 app.use(express.json());
 
-// 2. ربط وتهيئة Firebase Admin SDK بأمان مع فحص وجود الملف السري أولاً لضمان عدم حدوث Crash
-let db: admin.firestore.Firestore | null = null;
-const databaseId = "ai-studio-sadaalarabvoiceb-5f452604-580f-4265-ab18-da9c404b3698";
+// 2. تهيئة ذكية وآمنة لقاعدة بيانات الفايربيز تدعم السيرفر على Render والتطوير المحلي
+let dbInstance: admin.firestore.Firestore | null = null;
 
-try {
-    const secretPath = '/etc/secrets/firebase-key.json';
-    let serviceAccount: any = null;
+function getDb(): admin.firestore.Firestore | null {
+  if (dbInstance) return dbInstance;
 
-    if (fs.existsSync(secretPath)) {
-        const fileContent = fs.readFileSync(secretPath, 'utf8');
-        if (fileContent && fileContent.trim() !== "") {
-            serviceAccount = JSON.parse(fileContent);
-        }
-    } else if (process.env.FIREBASE_SERVICE_ACCOUNT) {
-        serviceAccount = JSON.parse(process.env.FIREBASE_SERVICE_ACCOUNT.trim());
-    }
+  const projectId = "gen-lang-client-0348881645";
+  const databaseId = "ai-studio-sadaalarabvoiceb-5f452604-580f-4265-ab18-da9c404b3698";
 
-    if (serviceAccount) {
+  // الفحص الأول: قراءة المفتاح من ملف الأسرار على ريندر إن وجد
+  const keyPath = '/etc/secrets/firebase-key.json';
+  if (fs.existsSync(keyPath)) {
+    try {
+      const keyContent = fs.readFileSync(keyPath, 'utf8');
+      if (keyContent && keyContent.trim()) {
+        const serviceAccount = JSON.parse(keyContent.trim());
         if (admin.apps.length === 0) {
-            admin.initializeApp({
-                credential: admin.credential.cert(serviceAccount),
-                projectId: serviceAccount.project_id
-            });
+          admin.initializeApp({
+            credential: admin.credential.cert(serviceAccount),
+            projectId: serviceAccount.project_id || projectId
+          });
         }
         const firestoreInstance = admin.firestore();
         firestoreInstance.settings({ databaseId });
-        db = firestoreInstance;
-        console.log("🔥 تم الاتصال بقاعدة بيانات Firebase بنجاح باستخدام المفتاح السري والمشروع المخصص.");
-    } else {
-        console.log("⚠️ لم يتم العثور على مفتاح FIREBASE_SERVICE_ACCOUNT أو ملف الأسرار، جاري تشغيل السيرفر بدون قاعدة بيانات حالياً للتجربة والتحقق.");
+        dbInstance = firestoreInstance;
+        console.log("🔥 [FIREBASE] تم الاتصال بقاعدة البيانات عبر ملف حساب الخدمة بنجاح");
+        return dbInstance;
+      }
+    } catch (err: any) {
+      console.error("❌ [FIREBASE ERROR] فشلت التهيئة عبر الملف المرفوع:", err.message);
     }
-} catch (error: any) {
-    console.error("❌ خطأ في تهيئة الفايربيز، جاري التشغيل بدون قاعدة بيانات لتفادي توقف السيرفر (Crash):", error.message);
+  }
+
+  // الفحص الثاني: قراءة المفتاح من متغير البيئة النصي
+  const serviceAccountVar = process.env.FIREBASE_SERVICE_ACCOUNT;
+  if (serviceAccountVar && serviceAccountVar.trim()) {
+    try {
+      const serviceAccount = JSON.parse(serviceAccountVar.trim());
+      if (admin.apps.length === 0) {
+        admin.initializeApp({
+          credential: admin.credential.cert(serviceAccount),
+          projectId: serviceAccount.project_id || projectId
+        });
+      }
+      const firestoreInstance = admin.firestore();
+      firestoreInstance.settings({ databaseId });
+      dbInstance = firestoreInstance;
+      console.log("🔥 [FIREBASE] تم الاتصال بقاعدة البيانات عبر متغير البيئة بنجاح");
+      return dbInstance;
+    } catch (err: any) {
+      console.error("❌ [FIREBASE ERROR] فشلت التهيئة عبر متغير البيئة:", err.message);
+    }
+  }
+
+  // وضع التطوير/الاحتياطي لمنع الانهيار
+  try {
+    if (admin.apps.length === 0) {
+      admin.initializeApp({
+        projectId: projectId
+      });
+    }
+    const firestoreInstance = admin.firestore();
+    firestoreInstance.settings({ databaseId });
+    dbInstance = firestoreInstance;
+    console.log("⚠️ [FIREBASE] تم التشغيل بدون ملف مفاتيح مع قاعدة البيانات المحددة");
+    return dbInstance;
+  } catch (err: any) {
+    console.error("❌ [FIREBASE ERROR] فشل التشغيل الاحتياطي:", err.message);
+    return null;
+  }
 }
 
-// 3. متغيرات نظام المحفظة وأرباح المنصة (الباك إند)
-let systemPool = 500000; 
-let platformProfit = 0;   
-let countdown = 30;       
-let gameInterval: NodeJS.Timeout;
-const foodSlots = ['chicken', 'pizza', 'sushi', 'cake', 'watermelon', 'meat', 'burger', 'salad'];
-const multipliers: { [key: string]: number } = {
-    chicken: 45, pizza: 15, sushi: 25, cake: 5, watermelon: 5, meat: 5, burger: 10, salad: 5
+// تشغيل الفحص الأولي لقاعدة البيانات عند بدء السيرفر
+try {
+  getDb();
+} catch (e) {}
+
+// 3. متغيرات نظام المحفظة والخيارات الـ 8 المحددة لعجلة الحظ
+let systemPool = 500000;
+let platformProfit = 0;
+
+interface Bet {
+  userId: string;
+  optionId: string;
+  amount: number;
+}
+
+interface RoundHistory {
+  roundId: string;
+  winningOption: string;
+  multiplier: number;
+  timestamp: string;
+}
+
+let gameRound = {
+  id: Date.now().toString(),
+  phase: 'betting' as 'betting' | 'spinning' | 'result',
+  countdown: 30, // العداد التنازلي المالي يبدأ من 30 ثانية
+  winningOption: null as string | null,
+  activeBets: [] as Bet[],
 };
 
-// مصفوفة ديناميكية لحفظ الرهانات النشطة في الجولة الحالية لتوزيع الأرباح بدقة
-interface Bet {
-    userId: string;
-    slot: string;
-    amount: number;
-}
-let activeBets: Bet[] = [];
-let roundHistory: any[] = [];
+let roundHistory: RoundHistory[] = [];
 
-// 4. خوارزمية تدوير العداد وبث النتائج اللحظية عبر الـ WebSockets
-const io = new Server(server, {
-    cors: { 
-        origin: ['https://wif.onrender.com', 'https://sada-alarab.onrender.com', 'http://localhost:3000'], 
-        methods: ['GET', 'POST'] 
-    }
-});
+// الخيارات المطابقة تماماً لتصميم العجلة في الفرونت إند مع الأوزان الرياضية
+const multiplierOptions = [
+  { id: 'chicken', name: '🍗 فرخ', multiplier: 45, weight: 2 },
+  { id: 'pizza', name: '🍕 بيتزا', multiplier: 15, weight: 6 },
+  { id: 'sushi', name: '🍣 سوشي', multiplier: 25, weight: 4 },
+  { id: 'cake', name: '🍰 كيك', multiplier: 5, weight: 20 },
+  { id: 'watermelon', name: '🍉 بطيخ', multiplier: 5, weight: 20 },
+  { id: 'meat', name: '🥩 ستيك', multiplier: 5, weight: 20 },
+  { id: 'burger', name: '🍔 برجر', multiplier: 10, weight: 10 },
+  { id: 'salad', name: '🥗 سلطة', multiplier: 5, weight: 20 },
+];
 
-// مصفوفة للاحتفاظ بمتلقي البث المباشر (SSE clients) كخيار احتياطي لمنع خطأ الـ 404
+const multipliers: { [key: string]: number } = {
+  chicken: 45, pizza: 15, sushi: 25, cake: 5, watermelon: 5, meat: 5, burger: 10, salad: 5
+};
+
+// 4. البث اللحظي عبر SSE، WebSockets، و Socket.io لضمان تغطية كل بروتوكولات العميل
 const sseClients = new Set<any>();
+let wss: WebSocketServer | null = null;
+let io: SocketIOServer | null = null;
 
-function getGameState() {
-    return {
-        countdown,
-        systemPool,
-        phase: countdown > 1 ? 'betting' : 'spinning',
-        history: roundHistory,
-        activeBetsCount: activeBets.length
-    };
+function getGameStatePayload() {
+  const currentTotalBets = gameRound.activeBets.reduce((sum, b) => sum + b.amount, 0);
+  return {
+    roundId: gameRound.id,
+    phase: gameRound.phase,
+    countdown: gameRound.countdown,
+    winningOption: gameRound.winningOption,
+    winningSlot: gameRound.winningOption,
+    history: roundHistory,
+    totalBets: currentTotalBets,
+    systemPool,
+    platformProfit,
+    options: multiplierOptions.map(o => ({ id: o.id, name: o.name, multiplier: o.multiplier }))
+  };
 }
 
-function broadcastState() {
-    const state = getGameState();
-    // إرسال فوري للمشتركين عبر Socket.io
-    io.emit('timer_update', state);
+function broadcastGameState() {
+  const statePayload = getGameStatePayload();
+  
+  // دمج الهيكلين (المغلف والمباشر) في كائن واحد متوافق لتفادي خطأ find()
+  const ssePayload = JSON.stringify({
+    ...statePayload,
+    type: 'game_state',
+    data: statePayload
+  });
 
-    // إرسال فوري للمشتركين عبر البث المباشر المفتوح (SSE) لتفادي الـ 404 تماماً
-    const sseData = JSON.stringify({ type: 'game_state', data: state });
-    for (const res of sseClients) {
+  // بث إلى مشتركي الـ SSE
+  for (const res of sseClients) {
+    try {
+      res.write(`data: ${ssePayload}\n\n`);
+    } catch (err) {
+      sseClients.delete(res);
+    }
+  }
+
+  // بث إلى الـ WebSockets العادية
+  if (wss) {
+    wss.clients.forEach((client) => {
+      if (client.readyState === WebSocket.OPEN) {
         try {
-            res.write(`data: ${sseData}\n\n`);
+          client.send(ssePayload);
         } catch (err) {
-            sseClients.delete(res);
+          console.error("WS Broadcast error:", err);
         }
-    }
-}
-
-function startNewRound() {
-    countdown = 30;
-    activeBets = []; // تفريغ الرهانات استعداداً للجولة الجديدة
-    io.emit('round_start', { countdown, systemPool });
-    broadcastState();
-
-    gameInterval = setInterval(async () => {
-        countdown--;
-        broadcastState();
-
-        if (countdown === 1) {
-            io.emit('betting_closed'); 
-        }
-
-        if (countdown <= 0) {
-            clearInterval(gameInterval);
-            await processRoundResults();
-        }
-    }, 1000);
-}
-
-// 5. حساب النتيجة وتوزيع الأرباح بأمان عبر معاملات Firestore المتزامنة
-async function processRoundResults() {
-    // اختيار الخيار الفائز عشوائياً
-    const winningSlot = foodSlots[Math.floor(Math.random() * foodSlots.length)];
-    const multiplier = multipliers[winningSlot] || 5;
-
-    io.emit('wheel_spin', { winningSlot });
-    console.log(`🎰 الخيار الفائز في هذه الجولة هو: ${winningSlot} (المضاعف: x${multiplier})`);
-
-    // تصفية وتحديد الفائزين الذين راهنوا على الخيار الفائز
-    const winners = activeBets.filter(b => b.slot === winningSlot);
-    console.log(`🎯 عدد الرهانات الفائزة في هذه الجولة: ${winners.length}`);
-
-    if (db && winners.length > 0) {
-        for (const bet of winners) {
-            try {
-                const userRef = db.collection('users').doc(bet.userId);
-                const payoutAmount = bet.amount * multiplier;
-
-                // معاملة ذرية آمنة (Atomic Transaction) لمنع التضارب وحساب الرصيد بدقة
-                await db.runTransaction(async (transaction) => {
-                    const userDoc = await transaction.get(userRef);
-                    if (!userDoc.exists) {
-                        console.error(`User ${bet.userId} not found during payout.`);
-                        return;
-                    }
-
-                    const currentBalance = userDoc.data()?.coins || 0;
-                    const newBalance = currentBalance + payoutAmount;
-
-                    // إضافة نقاط خبرة كهدية تشجيعية من النظام (10% من قيمة الربح)
-                    const currentXp = userDoc.data()?.xp || 0;
-                    const newXp = currentXp + Math.floor(payoutAmount * 0.1);
-
-                    transaction.update(userRef, { 
-                        coins: newBalance,
-                        xp: newXp
-                    });
-                    
-                    console.log(`💰 [PAYOUT SUCCESS] تم شحن رصيد ${bet.userId} بقيمة ${payoutAmount} كوينز. الرصيد الجديد: ${newBalance}`);
-                });
-            } catch (err: any) {
-                console.error(`❌ فشل معالجة الربح للمستخدم ${bet.userId}:`, err.message);
-            }
-        }
-    }
-
-    // تسجيل الجولة في السجل التاريخي للعبة
-    roundHistory.unshift({
-        winningSlot,
-        multiplier,
-        timestamp: new Date().toISOString()
+      }
     });
-    if (roundHistory.length > 20) roundHistory.pop();
+  }
 
-    setTimeout(() => {
-        startNewRound();
-    }, 7000);
+  // بث إلى الـ Socket.io المالي
+  if (io) {
+    io.emit('game_state', statePayload);
+    
+    if (gameRound.phase === 'betting') {
+      io.emit('timer_update', { countdown: gameRound.countdown });
+    } else if (gameRound.phase === 'spinning') {
+      io.emit('wheel_spin', { winningSlot: gameRound.winningOption });
+    }
+  }
 }
 
-// 6. رابط المراهنة الآمن المرتبط بحسابك في الـ Firebase
-app.post('/api/game/bet', async (req, res) => {
-    const { userId, slot, amount } = req.body; 
+// 5. توزيع الأرباح الآمن من خلال العمليات التبادلية للفايربيز
+async function processPayouts() {
+  const winningOption = gameRound.winningOption;
+  if (!winningOption) return;
 
-    if (!userId || !slot || typeof amount !== 'number' || amount <= 0) {
-        return res.status(400).json({ error: "بيانات الرهان غير صالحة" });
+  const currentOpt = multiplierOptions.find(o => o.id === winningOption);
+  const multiplier = currentOpt?.multiplier || multipliers[winningOption] || 1;
+
+  const winners = gameRound.activeBets.filter(b => b.optionId === winningOption);
+  console.log(`🎰 [RESULT] الخيار الفائز: ${winningOption}. عدد الفائزين: ${winners.length}`);
+
+  const db = getDb();
+  if (!db) {
+    console.error("⚠️ [PAYOUTS] قاعدة البيانات غير جاهزة لتسوية الأرباح.");
+    return;
+  }
+
+  for (const bet of winners) {
+    try {
+      const userRef = db.collection('users').doc(bet.userId);
+      const reward = bet.amount * multiplier;
+
+      await db.runTransaction(async (transaction) => {
+        const userDoc = await transaction.get(userRef);
+        if (!userDoc.exists) {
+          console.error(`User ${bet.userId} not found during payout.`);
+          return;
+        }
+
+        const currentCoins = userDoc.data()?.coins || 0;
+        const newCoins = currentCoins + reward;
+
+        const currentXp = userDoc.data()?.xp || 0;
+        const newXp = currentXp + Math.floor(reward * 0.1);
+
+        transaction.update(userRef, {
+          coins: newCoins,
+          xp: newXp
+        });
+
+        console.log(`[PAYOUT] تم شحن حساب ${bet.userId} بـ ${reward} كوينز.`);
+      });
+    } catch (err: any) {
+      console.error(`[PAYOUT ERROR] فشل الدفع للمستخدم ${bet.userId}:`, err.message);
+    }
+  }
+}
+
+// 6. تدوير العجلة ونظام الجولات التلقائي المستقر
+setInterval(async () => {
+  if (gameRound.phase === 'betting') {
+    gameRound.countdown--;
+    
+    if (gameRound.countdown === 1 && io) {
+      io.emit('betting_closed');
     }
 
-    if (countdown <= 1) {
-        return res.status(400).json({ error: "عذراً، انتهت فترة الرهان لهذه الجولة ويجري تدوير العجلة حالياً!" });
+    if (gameRound.countdown <= 0) {
+      gameRound.phase = 'spinning';
+      gameRound.countdown = 5; // 5 ثواني دوران العجلة
+
+      // خوارزمية تدوير ذكية وموزونة لاختيار الفائز
+      const totalWeight = multiplierOptions.reduce((sum, opt) => sum + opt.weight, 0);
+      let randomValue = Math.random() * totalWeight;
+      let selectedOption = multiplierOptions[0];
+
+      for (const opt of multiplierOptions) {
+        randomValue -= opt.weight;
+        if (randomValue <= 0) {
+          selectedOption = opt;
+          break;
+        }
+      }
+
+      gameRound.winningOption = selectedOption.id;
+      console.log(`🎰 [SPIN] بدأت العجلة في الدوران! الفائز المحدد: ${selectedOption.id}`);
+      
+      if (io) {
+        io.emit('wheel_spin', { winningSlot: selectedOption.id });
+      }
+      broadcastGameState();
+    } else {
+      broadcastGameState();
+    }
+  } else if (gameRound.phase === 'spinning') {
+    gameRound.countdown--;
+    if (gameRound.countdown <= 0) {
+      gameRound.phase = 'result';
+      gameRound.countdown = 5; // 5 ثواني عرض النتيجة
+
+      await processPayouts();
+
+      const winningOptObj = multiplierOptions.find(o => o.id === gameRound.winningOption);
+      roundHistory.unshift({
+        roundId: gameRound.id,
+        winningOption: gameRound.winningOption || 'pizza',
+        multiplier: winningOptObj?.multiplier || 5,
+        timestamp: new Date().toISOString(),
+      });
+
+      if (roundHistory.length > 30) {
+        roundHistory.pop();
+      }
+
+      broadcastGameState();
+    } else {
+      broadcastGameState();
+    }
+  } else if (gameRound.phase === 'result') {
+    gameRound.countdown--;
+    if (gameRound.countdown <= 0) {
+      gameRound = {
+        id: Date.now().toString(),
+        phase: 'betting',
+        countdown: 30,
+        winningOption: null,
+        activeBets: [],
+      };
+      console.log(`🔄 [ROUND] بداية جولة جديدة برقم: ${gameRound.id}`);
+      if (io) {
+        io.emit('round_start', { countdown: 30, systemPool });
+      }
+      broadcastGameState();
+    } else {
+      broadcastGameState();
+    }
+  }
+}, 1000);
+
+// 7. استقبال الرهانات الآمن (يدعم الحقلين slot و optionId للتوافق الكامل)
+const placeBetHandler = async (req: express.Request, res: express.Response) => {
+  try {
+    const { userId, slot, optionId, amount } = req.body;
+    const targetOption = slot || optionId;
+
+    if (!userId || !targetOption || typeof amount !== 'number' || amount <= 0) {
+      res.status(400).json({ error: "بيانات الرهان غير صالحة" });
+      return;
     }
 
+    if (gameRound.phase !== 'betting') {
+      res.status(400).json({ error: "المراهنة مغلقة حالياً للجولة الحالية!" });
+      return;
+    }
+
+    const validOption = multiplierOptions.find(o => o.id === targetOption);
+    if (!validOption) {
+      res.status(400).json({ error: "الخيار المختار غير صالح" });
+      return;
+    }
+
+    const db = getDb();
     if (!db) {
-        // نمط التجربة والتحقق الذاتي بدون وجود اتصال بقاعدة البيانات لتفادي الـ Crash
-        activeBets.push({ userId, slot, amount });
-        broadcastState();
-        return res.json({ success: true, message: "تم قبول الرهان بنجاح (وضع التجربة بدون قاعدة بيانات)" });
+      res.status(500).json({ error: "قاعدة بيانات الفايربيز غير متصلة بالسيرفر حالياً" });
+      return;
     }
 
     const userRef = db.collection('users').doc(userId);
+    let finalCoins = 0;
 
-    try {
-        await db.runTransaction(async (transaction) => {
-            const userDoc = await transaction.get(userRef);
-            if (!userDoc.exists) {
-                throw new Error("المستخدم غير موجود في قاعدة البيانات");
-            }
+    await db.runTransaction(async (transaction) => {
+      const userDoc = await transaction.get(userRef);
+      if (!userDoc.exists) {
+        throw new Error("المستخدم غير موجود في قاعدة البيانات");
+      }
 
-            const currentBalance = userDoc.data()?.coins || 0; 
-            if (currentBalance < amount) {
-                throw new Error("رصيدك الحالي غير كافٍ للمراهنة");
-            }
+      const currentCoins = userDoc.data()?.coins || 0;
+      if (currentCoins < amount) {
+        throw new Error("رصيدك الحالي غير كافٍ للمراهنة");
+      }
 
-            const newBalance = currentBalance - amount;
-            transaction.update(userRef, { coins: newBalance });
+      finalCoins = currentCoins - amount;
+      transaction.update(userRef, { coins: finalCoins });
 
-            const profitCut = Math.floor(amount * 0.10);
-            const poolAddition = amount - profitCut;
+      const profitCut = Math.floor(amount * 0.10);
+      const poolAddition = amount - profitCut;
 
-            platformProfit += profitCut;
-            systemPool += poolAddition;
-        });
-
-        // تسجيل الرهان في الذاكرة لتوزيع الأرباح للفائزين عند انتهاء الجولة
-        activeBets.push({ userId, slot, amount });
-        console.log(`📥 [BET REGISTERED] اللاعب ${userId} راهن بـ ${amount} على ${slot}`);
-        
-        broadcastState();
-
-        return res.json({ success: true, message: "تم قبول الرهان وخصمه بنجاح" });
-    } catch (error: any) {
-        return res.status(400).json({ error: error.message });
-    }
-});
-
-// 7. تعريف مسارات البث المباشر (SSE) الاحتياطية لتجنب خطأ الـ 404 تماماً في الـ Webview
-const handleStream = (req: express.Request, res: express.Response) => {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.flushHeaders();
-
-    sseClients.add(res);
-
-    // إرسال الحالة الحالية فور الاتصال
-    const state = getGameState();
-    res.write(`data: ${JSON.stringify({ type: 'game_state', data: state })}\n\n`);
-
-    req.on('close', () => {
-        sseClients.delete(res);
+      platformProfit += profitCut;
+      systemPool += poolAddition;
     });
+
+    gameRound.activeBets.push({ userId, optionId: targetOption, amount });
+    console.log(`💸 [BET REGISTERED] خصم الرهان بنجاح: ${userId} بمقدار ${amount} على ${targetOption}`);
+
+    broadcastGameState();
+
+    res.json({
+      success: true,
+      message: "تم قبول الرهان وخصمه بنجاح",
+      newBalance: finalCoins,
+      roundId: gameRound.id
+    });
+  } catch (err: any) {
+    console.error("❌ [BET ERROR]", err.message);
+    res.status(400).json({ error: err.message });
+  }
 };
 
-// دعم جميع المسارات الممكنة لمنع الـ 404 في اللعبة تماماً بالتوازي
-app.get('/api/stream', handleStream);
-app.get('/api/game/stream', handleStream);
-app.get('/stream', handleStream);
+app.post('/api/placeBet', placeBetHandler);
+app.post('/api/game/bet', placeBetHandler);
 
-// 8. روابط لوحة تحكم المسؤول (Admin Dashboard) لمتابعة الأرباح حياً
+// 8. دعم بث الـ SSE للمسارين /api/stream و /api/game/stream لضمان عدم حدوث 404
+const sseHandler = (req: express.Request, res: express.Response) => {
+  res.setHeader('Content-Type', 'text/event-stream');
+  res.setHeader('Cache-Control', 'no-cache');
+  res.setHeader('Connection', 'keep-alive');
+  res.flushHeaders();
+
+  sseClients.add(res);
+
+  const statePayload = getGameStatePayload();
+  const ssePayload = JSON.stringify({
+    ...statePayload,
+    type: 'game_state',
+    data: statePayload
+  });
+  res.write(`data: ${ssePayload}\n\n`);
+
+  req.on('close', () => {
+    sseClients.delete(res);
+  });
+};
+
+app.get('/api/stream', sseHandler);
+app.get('/api/game/stream', sseHandler);
+
+app.get('/api/game/state', (req, res) => {
+  res.json(getGameStatePayload());
+});
+
+// 9. لوحة تحكم المسؤول (Admin Dashboard)
 app.get('/api/admin/dashboard', (req, res) => {
-    res.json({
-        systemPool,
-        platformProfit,
-        activeUsers: io.engine.clientsCount,
-        history: roundHistory,
-        activeBets
-    });
+  res.json({
+    systemPool,
+    platformProfit,
+    activeUsers: io ? io.engine.clientsCount : (wss ? wss.clients.size : 0),
+    gameState: gameRound,
+    history: roundHistory,
+    config: multiplierOptions
+  });
 });
 
 app.post('/api/admin/inject', (req, res) => {
-    const { amount } = req.body;
-    if (amount && amount > 0) {
-        systemPool += amount;
-        return res.json({ success: true, systemPool });
-    }
-    return res.status(400).json({ error: "قيمة الشحن غير صحيحة" });
+  const { amount } = req.body;
+  if (amount && amount > 0) {
+    systemPool += amount;
+    broadcastGameState();
+    res.json({ success: true, systemPool });
+  } else {
+    res.status(400).json({ error: "قيمة الشحن غير صحيحة" });
+  }
 });
 
-const PORT = process.env.PORT || 10000;
-server.listen(PORT, () => {
-    console.log(`🚀 سيرفر اللعبة المالي يعمل أونلاين على المنفذ ${PORT}`);
-    startNewRound();
+app.post('/api/admin/force-spin', (req, res) => {
+  const { optionId } = req.body;
+  if (gameRound.phase !== 'betting') {
+    res.status(400).json({ error: "Cannot force spin when not in betting phase!" });
+    return;
+  }
+
+  const validOption = multiplierOptions.find(o => o.id === optionId);
+  if (!validOption) {
+    res.status(400).json({ error: "Invalid force option id" });
+    return;
+  }
+
+  gameRound.phase = 'spinning';
+  gameRound.countdown = 5;
+  gameRound.winningOption = optionId;
+  console.log(`[ADMIN FORCE] forced winning option to: ${optionId}`);
+  broadcastGameState();
+
+  res.json({ success: true, message: `Forced spin result to ${optionId}` });
 });
+
+// تفعيل محرك Socket.io
+io = new SocketIOServer(httpServer, {
+  cors: {
+    origin: allowedOrigins,
+    methods: ['GET', 'POST'],
+    credentials: true
+  }
+});
+
+io.on('connection', (socket) => {
+  console.log('[SOCKET.IO] متصل الآن:', socket.id);
+  socket.emit('game_state', getGameStatePayload());
+
+  socket.on('disconnect', () => {
+    console.log('[SOCKET.IO] قطع الاتصال:', socket.id);
+  });
+});
+
+// دعم WebSockets العادية كنسخة احتياطية
+wss = new WebSocketServer({ server: httpServer, path: '/ws/game' });
+wss.on('connection', (ws) => {
+  console.log('[WS] متصل الآن');
+  const payload = JSON.stringify({
+    ...getGameStatePayload(),
+    type: 'game_state',
+    data: getGameStatePayload()
+  });
+  ws.send(payload);
+
+  ws.on('close', () => {
+    console.log('[WS] قطع الاتصال');
+  });
+});
+
+// تهيئة تشغيل خادم تطوير Vite وخدمة الملفات الثابتة في بيئة الإنتاج
+const isProd = process.env.NODE_ENV === 'production';
+
+async function startServer() {
+  if (!isProd) {
+    const { createServer: createViteServer } = await import('vite');
+    const vite = await createViteServer({
+      server: { middlewareMode: true },
+      appType: 'spa',
+    });
+    app.use(vite.middlewares);
+  } else {
+    app.use(express.static(path.join(process.cwd(), 'dist')));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
+    });
+  }
+
+  const PORT = process.env.PORT || 3000;
+  httpServer.listen(PORT, '0.0.0.0', () => {
+    console.log(`🚀 [SERVER] يعمل بامتياز الآن على المنفذ المخصص ${PORT}`);
+  });
+}
+
+startServer();
