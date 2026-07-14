@@ -6,7 +6,17 @@ import HistorySidebar from './components/HistorySidebar';
 import HeaderPanel from './components/HeaderPanel';
 import FooterPanel from './components/FooterPanel';
 import AdminDashboard from './components/AdminDashboard';
-import { triggerSuccess, triggerError } from './utils';
+
+// Custom Trigger Functions directly inside App to avoid missing import errors
+const triggerSuccess = (msg: string) => {
+  console.log("%c SUCCESS: " + msg, "color: #10b981; font-weight: bold; background: #064e3b; padding: 4px; border-radius: 4px;");
+  alert(msg); // تأكيد التنبيه البصري للمستخدم
+};
+
+const triggerError = (msg: string) => {
+  console.error("ERROR: " + msg);
+  alert(msg); // تأكيد التنبيه البصري للمستخدم
+};
 
 export default function App() {
   const [gameState, setGameState] = useState<GameState | null>(null);
@@ -134,7 +144,7 @@ export default function App() {
 
   const currentBalance = currentUser ? currentUser.balance : 0;
   const topPlayer = (gameState?.roomPlayers && Array.isArray(gameState.roomPlayers) && gameState.roomPlayers.length > 0)
-    ? [...gameState.roomPlayers].sort((a, b) => b.balance - a.balance)[0]
+    ? [...gameState.roomPlayers].sort((a, b) => b.balance - a.balance)
     : null;
 
   const dailyProfit = sessionStartBalance !== null ? currentBalance - sessionStartBalance : 0;
